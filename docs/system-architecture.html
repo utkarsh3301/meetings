@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Notes Architecture</title>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1c1c1a; --muted:#6b6a65; --line:#d9d6cf;
+  --app:#2f5d8a; --app-bg:#e8eff6;
+  --data:#3d7a55; --data-bg:#e7f2eb;
+  --ext:#9a5b1e; --ext-bg:#f7ecdf;
+  --work:#6a4a8c; --work-bg:#efe9f5;
+  --warn:#a33a2c;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#151513; --panel:#1e1e1b; --ink:#ecebe6; --muted:#9d9b94; --line:#34332f;
+    --app:#8bb4dc; --app-bg:#1d2a37; --data:#8cc8a2; --data-bg:#1c2b22;
+    --ext:#e0a86b; --ext-bg:#33271a; --work:#bfa2e0; --work-bg:#2a2236; --warn:#e58b7e;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#151513; --panel:#1e1e1b; --ink:#ecebe6; --muted:#9d9b94; --line:#34332f;
+  --app:#8bb4dc; --app-bg:#1d2a37; --data:#8cc8a2; --data-bg:#1c2b22;
+  --ext:#e0a86b; --ext-bg:#33271a; --work:#bfa2e0; --work-bg:#2a2236; --warn:#e58b7e;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1080px;margin:0 auto;padding:40px 16px 80px}
+h1{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:19px;margin:48px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+h3{font-size:15px;margin:0 0 6px}
+p.lead{color:var(--muted);margin:0 0 8px;max-width:760px}
+.meta{color:var(--muted);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.diagram{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:760px;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:13px;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-2px;background:var(--c)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;margin-bottom:8px}
+.t-app{background:var(--app-bg);color:var(--app)}
+.t-data{background:var(--data-bg);color:var(--data)}
+.t-ext{background:var(--ext-bg);color:var(--ext)}
+.t-work{background:var(--work-bg);color:var(--work)}
+.card ul{margin:6px 0 0;padding-left:18px}
+.card li{margin:3px 0}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:0}
+ol.steps li{counter-increment:s;position:relative;padding:12px 14px 12px 52px;border-bottom:1px solid var(--line)}
+ol.steps li:last-child{border-bottom:0}
+ol.steps li::before{content:counter(s);position:absolute;left:14px;top:12px;width:26px;height:26px;border-radius:50%;background:var(--work-bg);color:var(--work);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+ol.steps b{display:block}
+ol.steps .who{color:var(--muted);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:var(--bg);padding:1px 5px;border-radius:4px}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.states{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px}
+.states .s{border:1px solid var(--line);background:var(--panel);padding:5px 10px;border-radius:6px}
+.states .arrow{color:var(--muted)}
+.states .bad{border-color:var(--warn);color:var(--warn)}
+.note{border-left:3px solid var(--ext);padding:10px 14px;background:var(--panel);border-radius:0 8px 8px 0;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+
+<h1>Meeting Notes: System Architecture</h1>
+<p class="lead">Upload a client meeting recording, get back a speaker-labelled transcript, summary, action items, decisions, scope-change flags and a commitment log. App and worker on Railway, speech and LLM via NVIDIA hosted APIs, speaker diarization run on CPU in our own worker.</p>
+<p class="meta">Volume assumption: 2 meetings/day, ~1.5 hrs each, ~66 hrs audio/month. V1 draft, 26 Oct 2026.</p>
+
+<h2>1. How it connects</h2>
+<div class="diagram">
+<svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,Segoe UI,sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+
+  <!-- Railway boundary -->
+  <rect x="200" y="20" width="440" height="520" rx="12" fill="none" stroke="var(--line)" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="216" y="44" font-size="13" font-weight="700" fill="var(--muted)">RAILWAY PROJECT</text>
+
+  <!-- NVIDIA boundary -->
+  <rect x="690" y="250" width="290" height="290" rx="12" fill="none" stroke="var(--line)" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="706" y="274" font-size="13" font-weight="700" fill="var(--muted)">NVIDIA HOSTED APIs</text>
+
+  <!-- Browser -->
+  <rect x="20" y="70" width="150" height="90" rx="10" fill="var(--app-bg)" stroke="var(--app)"/>
+  <text x="95" y="105" text-anchor="middle" font-size="15" font-weight="700" fill="var(--app)">Team browser</text>
+  <text x="95" y="127" text-anchor="middle" font-size="12" fill="var(--ink)">upload, review,</text>
+  <text x="95" y="143" text-anchor="middle" font-size="12" fill="var(--ink)">edit, export</text>
+
+  <!-- Web app -->
+  <rect x="240" y="70" width="360" height="100" rx="10" fill="var(--app-bg)" stroke="var(--app)"/>
+  <text x="420" y="100" text-anchor="middle" font-size="15" font-weight="700" fill="var(--app)">Web app (Next.js)</text>
+  <text x="420" y="122" text-anchor="middle" font-size="12" fill="var(--ink)">UI + API routes: auth, meetings, transcript editor,</text>
+  <text x="420" y="139" text-anchor="middle" font-size="12" fill="var(--ink)">speaker rename, search, export, upload URLs</text>
+  <text x="420" y="156" text-anchor="middle" font-size="12" fill="var(--muted)">always on</text>
+
+  <!-- Postgres -->
+  <rect x="240" y="225" width="360" height="90" rx="10" fill="var(--data-bg)" stroke="var(--data)"/>
+  <text x="420" y="255" text-anchor="middle" font-size="15" font-weight="700" fill="var(--data)">Postgres</text>
+  <text x="420" y="277" text-anchor="middle" font-size="12" fill="var(--ink)">meetings, segments, speakers, outputs,</text>
+  <text x="420" y="294" text-anchor="middle" font-size="12" fill="var(--ink)">action items, jobs (the queue), full-text search</text>
+
+  <!-- Worker -->
+  <rect x="240" y="375" width="360" height="140" rx="10" fill="var(--work-bg)" stroke="var(--work)"/>
+  <text x="420" y="403" text-anchor="middle" font-size="15" font-weight="700" fill="var(--work)">Worker (Python, cron)</text>
+  <text x="420" y="426" text-anchor="middle" font-size="12" fill="var(--ink)">wakes every 10 min, drains queue, exits</text>
+  <text x="420" y="452" text-anchor="middle" font-size="12" fill="var(--ink)">ffmpeg: to 16 kHz mono wav</text>
+  <text x="420" y="470" text-anchor="middle" font-size="12" fill="var(--ink)">pyannote: speaker diarization on CPU</text>
+  <text x="420" y="488" text-anchor="middle" font-size="12" fill="var(--ink)">align speakers to text, build transcript</text>
+  <text x="420" y="506" text-anchor="middle" font-size="12" fill="var(--ink)">provider adapter: ASR + LLM</text>
+
+  <!-- R2 -->
+  <rect x="20" y="300" width="150" height="110" rx="10" fill="var(--data-bg)" stroke="var(--data)"/>
+  <text x="95" y="333" text-anchor="middle" font-size="15" font-weight="700" fill="var(--data)">Cloudflare R2</text>
+  <text x="95" y="355" text-anchor="middle" font-size="12" fill="var(--ink)">private bucket,</text>
+  <text x="95" y="371" text-anchor="middle" font-size="12" fill="var(--ink)">audio only,</text>
+  <text x="95" y="387" text-anchor="middle" font-size="12" fill="var(--ink)">auto-delete after N days</text>
+
+  <!-- NVIDIA ASR -->
+  <rect x="710" y="295" width="250" height="95" rx="10" fill="var(--ext-bg)" stroke="var(--ext)"/>
+  <text x="835" y="325" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ext)">Speech to text</text>
+  <text x="835" y="347" text-anchor="middle" font-size="12" fill="var(--ink)">Parakeet 1.1b multilingual</text>
+  <text x="835" y="364" text-anchor="middle" font-size="12" fill="var(--ink)">Riva gRPC, audio sent in chunks</text>
+
+  <!-- NVIDIA LLM -->
+  <rect x="710" y="420" width="250" height="95" rx="10" fill="var(--ext-bg)" stroke="var(--ext)"/>
+  <text x="835" y="450" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ext)">LLM</text>
+  <text x="835" y="472" text-anchor="middle" font-size="12" fill="var(--ink)">Nemotron 3 Super, OpenAI-compatible</text>
+  <text x="835" y="489" text-anchor="middle" font-size="12" fill="var(--ink)">summary, actions, scope flags</text>
+
+  <!-- Fallback providers -->
+  <rect x="710" y="70" width="250" height="100" rx="10" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/>
+  <text x="835" y="100" text-anchor="middle" font-size="14" font-weight="700" fill="var(--muted)">Swap-in NVIDIA models</text>
+  <text x="835" y="122" text-anchor="middle" font-size="12" fill="var(--muted)">e.g. Nemotron Super 49B</text>
+  <text x="835" y="139" text-anchor="middle" font-size="12" fill="var(--muted)">config change only,</text>
+  <text x="835" y="156" text-anchor="middle" font-size="12" fill="var(--muted)">never automatic</text>
+
+  <!-- Arrows -->
+  <line x1="170" y1="115" x2="236" y2="115" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="203" y="106" text-anchor="middle" font-size="11" fill="var(--muted)">HTTPS</text>
+
+  <path d="M70 160 L70 296" stroke="var(--app)" stroke-width="1.6" fill="none" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+  <text x="78" y="225" font-size="11" fill="var(--app)">1. direct upload</text>
+  <text x="78" y="240" font-size="11" fill="var(--app)">(presigned URL)</text>
+
+  <line x1="420" y1="170" x2="420" y2="221" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="428" y="200" font-size="11" fill="var(--muted)">2. create meeting + job</text>
+
+  <line x1="420" y1="371" x2="420" y2="319" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="428" y="350" font-size="11" fill="var(--muted)">3. claim job / 7. write results</text>
+
+  <path d="M236 430 L174 400" stroke="var(--data)" stroke-width="1.6" fill="none" marker-end="url(#ah)"/>
+  <text x="150" y="440" font-size="11" fill="var(--data)">4. fetch audio</text>
+
+  <path d="M600 440 L706 345" stroke="var(--ext)" stroke-width="1.6" fill="none" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="612" y="372" font-size="11" fill="var(--ext)">5. chunks to text</text>
+
+  <path d="M600 480 L706 467" stroke="var(--ext)" stroke-width="1.6" fill="none" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="614" y="500" font-size="11" fill="var(--ext)">6. transcript text only</text>
+</svg>
+</div>
+<div class="legend">
+  <span style="--c:var(--app)">App layer</span>
+  <span style="--c:var(--data)">Storage</span>
+  <span style="--c:var(--work)">Processing</span>
+  <span style="--c:var(--ext)">External API</span>
+</div>
+
+<h2>2. Components</h2>
+<div class="grid">
+  <div class="card">
+    <span class="tag t-app">Railway</span>
+    <h3>Web app</h3>
+    <ul>
+      <li>Next.js, UI and API routes in one service</li>
+      <li>Login, roles: admin, member</li>
+      <li>Issues presigned R2 upload URLs, never handles the file itself</li>
+      <li>Transcript view synced to audio playback</li>
+      <li>Export: docx, PDF, markdown</li>
+    </ul>
+  </div>
+  <div class="card">
+    <span class="tag t-data">Railway</span>
+    <h3>Postgres</h3>
+    <ul>
+      <li>All text, metadata and job state</li>
+      <li>Jobs table is the queue, claimed with <code>FOR UPDATE SKIP LOCKED</code></li>
+      <li>Full-text search on segments</li>
+      <li>Small: years of transcripts fit in a few GB</li>
+    </ul>
+  </div>
+  <div class="card">
+    <span class="tag t-work">Railway</span>
+    <h3>Worker</h3>
+    <ul>
+      <li>Python, runs as a cron service, exits when queue is empty</li>
+      <li>ffmpeg + pyannote on CPU, ~2-3 GB RAM while running</li>
+      <li>Each stage saves before the next starts, so a crash resumes mid-pipeline</li>
+      <li>Provider adapter wraps ASR and LLM calls</li>
+    </ul>
+  </div>
+  <div class="card">
+    <span class="tag t-data">Cloudflare</span>
+    <h3>R2 bucket</h3>
+    <ul>
+      <li>Audio only, private, no public URLs</li>
+      <li>Needed because a Railway volume attaches to one service, and both app and worker need the file</li>
+      <li>Upload extracted audio, not video, to stay inside free 10 GB</li>
+      <li>Lifecycle rule deletes audio after retention period</li>
+    </ul>
+  </div>
+  <div class="card">
+    <span class="tag t-ext">NVIDIA</span>
+    <h3>Speech to text</h3>
+    <ul>
+      <li>Hosted Parakeet 1.1b RNNT multilingual, handles Hindi and English</li>
+      <li>Called per diarized chunk, so each piece of text already has a speaker</li>
+      <li>Language per meeting, default <code>multi</code> (auto detect)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <span class="tag t-ext">NVIDIA</span>
+    <h3>LLM</h3>
+    <ul>
+      <li>Receives transcript text, never audio</li>
+      <li>Nemotron 3 Super, 1M context: whole transcript in one call, no chunking</li>
+      <li>Second call for scope changes, only when the project has a baseline</li>
+      <li>Structured JSON out, every finding cites segment IDs</li>
+    </ul>
+  </div>
+</div>
+
+<h2>3. Pipeline per meeting</h2>
+<div class="card" style="padding:0">
+<ol class="steps">
+  <li><b>Upload</b><span class="who">Browser + web app.</span> User picks client, project and meeting type, ticks consent. If the file is video, the browser uploads it and the worker extracts audio first. Meeting row created, job status <code>queued</code>.</li>
+  <li><b>Claim</b><span class="who">Worker.</span> Cron wakes, claims the oldest queued job, sets <code>preprocessing</code>.</li>
+  <li><b>Preprocess</b><span class="who">Worker, ffmpeg.</span> Download from R2, convert to 16 kHz mono wav, normalise loudness. If source was video, replace it in R2 with the audio file.</li>
+  <li><b>Diarize</b><span class="who">Worker, pyannote on CPU.</span> Produces speaker turns: who spoke from when to when. ~10-15 min per hour of audio. Saved as segments with empty text.</li>
+  <li><b>Transcribe</b><span class="who">Worker to NVIDIA ASR.</span> Each speaker turn (long turns split at ~30 s) sent to Parakeet. Text written back into its segment. Failed chunks retried 3 times, then the job goes to <code>needs_attention</code>.</li>
+  <li><b>Analyse</b><span class="who">Worker to NVIDIA LLM.</span> Template chosen by meeting type. Whole transcript in one call, then a scope-change call if a baseline exists. Outputs: summary, decisions, action items with owner and due date, open questions, scope-change flags, commitments. Each item stores the segment IDs it came from.</li>
+  <li><b>Ready</b><span class="who">Worker.</span> Job set <code>ready</code>, temp files deleted. App shows it in the meeting list. User renames speakers, edits text, exports.</li>
+</ol>
+</div>
+
+<h3 style="margin-top:22px">Job states</h3>
+<div class="states">
+  <span class="s">queued</span><span class="arrow">&rarr;</span>
+  <span class="s">preprocessing</span><span class="arrow">&rarr;</span>
+  <span class="s">diarizing</span><span class="arrow">&rarr;</span>
+  <span class="s">transcribing</span><span class="arrow">&rarr;</span>
+  <span class="s">analysing</span><span class="arrow">&rarr;</span>
+  <span class="s">ready</span>
+  <span class="arrow">|</span>
+  <span class="s bad">needs_attention</span>
+  <span class="s bad">failed</span>
+</div>
+
+<h2>4. Data model</h2>
+<div class="tablewrap">
+<table>
+<tr><th>Table</th><th>Key fields</th><th>Notes</th></tr>
+<tr><td><code>users</code></td><td>name, email, role</td><td>admin, member</td></tr>
+<tr><td><code>clients</code></td><td>name</td><td></td></tr>
+<tr><td><code>projects</code></td><td>client_id, name, scope_baseline</td><td>baseline text feeds the scope-change check</td></tr>
+<tr><td><code>meetings</code></td><td>project_id, title, date, type, consent, audio_key, duration, status</td><td>type picks the summary template</td></tr>
+<tr><td><code>speakers</code></td><td>meeting_id, label, display_name, side</td><td>side: client or QRYX</td></tr>
+<tr><td><code>segments</code></td><td>meeting_id, speaker_id, start_ms, end_ms, text, edited_text</td><td>original kept, edits separate; full-text index</td></tr>
+<tr><td><code>outputs</code></td><td>meeting_id, kind, content, model, created_at</td><td>kind: summary, decisions, questions</td></tr>
+<tr><td><code>action_items</code></td><td>meeting_id, text, owner, due, status, segment_ids</td><td>tracked in app</td></tr>
+<tr><td><code>findings</code></td><td>meeting_id, kind, text, segment_ids, reviewed</td><td>kind: scope_change, commitment; flag for review, never auto-actioned</td></tr>
+<tr><td><code>vocabulary</code></td><td>client_id, term</td><td>names and product terms passed to ASR and LLM</td></tr>
+<tr><td><code>jobs</code></td><td>meeting_id, status, attempts, error, started_at, finished_at, timings</td><td>the queue</td></tr>
+</table>
+</div>
+
+<h2>5. Rules built into the design</h2>
+<div class="grid">
+  <div class="card"><h3>No silent fallback</h3>If NVIDIA fails, the job waits in <code>needs_attention</code>. It never reroutes to another provider on its own.</div>
+  <div class="card"><h3>Audio goes one place</h3>Only the ASR endpoint receives audio. The LLM gets text only.</div>
+  <div class="card"><h3>Original is never overwritten</h3>Edits go to <code>edited_text</code>. Raw ASR output stays for audit.</div>
+  <div class="card"><h3>Evidence or it did not happen</h3>Every action, decision, scope flag and commitment links to the segments it came from.</div>
+  <div class="card"><h3>Retention</h3>Audio auto-deleted from R2 after a set period. Text kept unless a meeting is deleted.</div>
+  <div class="card"><h3>Consent recorded</h3>Upload requires the consent flag. Stored on the meeting.</div>
+</div>
+
+<h2>6. Cost and capacity</h2>
+<div class="tablewrap">
+<table>
+<tr><th>Item</th><th>Expected</th><th>Notes</th></tr>
+<tr><td>Railway</td><td>Hobby $5/month, likely within included usage</td><td>web app + Postgres + worker running ~1 hr/day; Pro if it ever needs team seats</td></tr>
+<tr><td>Cloudflare R2</td><td>$0</td><td>audio only, under 10 GB with retention</td></tr>
+<tr><td>NVIDIA APIs</td><td>$0</td><td>free trial endpoints; swap to another NVIDIA model by config if it changes</td></tr>
+<tr><td>Turnaround</td><td>~20-40 min per meeting</td><td>diarization on CPU is the slow step; ASR and LLM are fast</td></tr>
+</table>
+</div>
+<div class="note">Set a usage limit in Railway on day one. Paid plans bill overage instead of stopping.</div>
+
+<h2>7. Open items</h2>
+<div class="card">
+<ul>
+  <li>Confirm the Parakeet function ID, offline vs streaming support, hosted speaker tags, and per-request audio limit. Sets the chunk length.</li>
+  <li>Phase 0: run 4-5 real Hinglish recordings through the pipeline before building the UI.</li>
+  <li>pyannote model download needs a one-time Hugging Face token; bake weights into the worker image.</li>
+  <li>Decide retention period for audio.</li>
+  <li>Summary templates per meeting type: discovery, status, UAT, other.</li>
+</ul>
+</div>
+
+</main>
+</body>
+</html>

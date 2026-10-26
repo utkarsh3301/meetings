@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(MEMBER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model Client {
+  id         String      @id @default(cuid())
+  name       String
+  projects   Project[]
+  vocabulary VocabTerm[]
+}
+
+model Project {
+  id            String    @id @default(cuid())
+  clientId      String
+  name          String
+  scopeBaseline String?
+  client        Client    @relation(fields: [clientId], references: [id])
+  meetings      Meeting[]
+}
+
+model Meeting {
+  id           String       @id @default(cuid())
+  projectId    String
+  title        String
+  meetingDate  DateTime
+  type         MeetingType
+  languageHint String       @default("multi")
+  consentGiven Boolean
+  audioKey     String?
+  durationSec  Int?
+  status       JobStatus    @default(QUEUED)
+  createdById  String
+  createdAt    DateTime     @default(now())
+  project      Project      @relation(fields: [projectId], references: [id])
+  speakers     Speaker[]
+  segments     Segment[]
+  outputs      Output[]
+  actionItems  ActionItem[]
+  findings     Finding[]
+  jobs         Job[]
+}
+
+enum MeetingType {
+  DISCOVERY
+  STATUS
+  UAT
+  INTERNAL
+  OTHER
+}
+
+model Speaker {
+  id          String    @id @default(cuid())
+  meetingId   String
+  label       String
+  displayName String?
+  side        Side      @default(UNKNOWN)
+  meeting     Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  segments    Segment[]
+}
+
+enum Side {
+  CLIENT
+  QRYX
+  UNKNOWN
+}
+
+model Segment {
+  id         String   @id @default(cuid())
+  meetingId  String
+  speakerId  String?
+  idx        Int
+  startMs    Int
+  endMs      Int
+  text       String
+  editedText String?
+  language   String?
+  meeting    Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  speaker    Speaker? @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+
+  @@index([meetingId, idx])
+}
+
+model Output {
+  id        String     @id @default(cuid())
+  meetingId String
+  kind      OutputKind
+  content   Json
+  model     String
+  createdAt DateTime   @default(now())
+  meeting   Meeting    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+enum OutputKind {
+  SUMMARY
+  DECISIONS
+  OPEN_QUESTIONS
+}
+
+model ActionItem {
+  id         String       @id @default(cuid())
+  meetingId  String
+  text       String
+  owner      String?
+  side       Side         @default(UNKNOWN)
+  dueDate    DateTime?
+  status     ActionStatus @default(OPEN)
+  segmentIds String[]
+  meeting    Meeting      @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+enum ActionStatus {
+  OPEN
+  DONE
+  DROPPED
+}
+
+model Finding {
+  id         String      @id @default(cuid())
+  meetingId  String
+  kind       FindingKind
+  text       String
+  detail     String?
+  segmentIds String[]
+  review     ReviewState @default(UNREVIEWED)
+  meeting    Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+enum FindingKind {
+  SCOPE_CHANGE
+  COMMITMENT
+}
+
+enum ReviewState {
+  UNREVIEWED
+  CONFIRMED
+  DISMISSED
+}
+
+model VocabTerm {
+  id       String @id @default(cuid())
+  clientId String
+  term     String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Job {
+  id         String    @id @default(cuid())
+  meetingId  String
+  status     JobStatus @default(QUEUED)
+  attempts   Int       @default(0)
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  timings    Json?
+  createdAt  DateTime  @default(now())
+  meeting    Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+enum JobStatus {
+  QUEUED
+  PREPROCESSING
+  DIARIZING
+  TRANSCRIBING
+  ANALYSING
+  READY
+  NEEDS_ATTENTION
+  FAILED
+}
